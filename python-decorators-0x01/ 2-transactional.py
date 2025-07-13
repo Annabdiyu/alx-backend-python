@@ -1,6 +1,7 @@
 import functools
 import sqlite3
 
+#2-transcational file exists
 def with_db_connection(func):
   @functools.wraps(func)
   def wrapper(*args, **kwargs)
