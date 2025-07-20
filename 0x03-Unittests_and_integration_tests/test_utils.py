@@ -4,7 +4,7 @@
 
 from unittest import TestCase
 from parameterized import parameterized
-from utils import access_nested_map
+from utils import access_nested_map,get_json
 from unittest.mock import patch, Mock
 
 
@@ -37,12 +37,11 @@ class TestGetJson(TestCase):
         test_url = "http://example.com"
         test_payload = {"payload": True}
 
-        with patch('utils.requests.get') as mock_get:
+        with patch('requests.get') as mock_get:
             mock_response = Mock()
             mock_response.json.return_value = test_payload
             mock_get.return_value = mock_response
 
-            from utils import get_json
             result = get_json(test_url)
 
             mock_get.assert_called_once_with(test_url)
