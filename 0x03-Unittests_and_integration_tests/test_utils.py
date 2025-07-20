@@ -1,4 +1,5 @@
-\#!/usr/bin/env python3
+#!/usr/bin/env python3
+
 """Unit test for access_nested_map in utils module."""
 
 from unittest import TestCase
