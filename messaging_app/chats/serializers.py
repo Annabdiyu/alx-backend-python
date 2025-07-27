@@ -1,123 +1,69 @@
 from rest_framework import serializers
-from .models import Book
-from .models import User, Conversation, Message
-
-class BookSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = Book
-        fields = '__all__'
+from .models import Message, User, Conversation
+from django.contrib.auth.password_validation import validate_password
+from rest_framework.validators import UniqueValidator
 
 class UserSerializer(serializers.ModelSerializer):
-    """
-    Serializer for the User model.
-    Handles serialization/deserialization of User instances.
-    """
+    password = serializers.CharField(write_only=True, required=True, validators=[validate_password])
+    email = serializers.EmailField(
+        required=True,
+        validators=[UniqueValidator(queryset=User.objects.all())]
+    )
     class Meta:
         model = User
-        fields = [
-            'id',
-            'first_name',
-            'last_name',
-            'email',
-            'phone_number',
-            'role',
-            'created_at'
-        ]
+        fields = ['user_id', 'username', 'email', 'first_name', 'last_name', 'phone_number', 'password']
+        read_only_fields = ['user_id']
         extra_kwargs = {
-            'password': {'write_only': True},
-            'created_at': {'read_only': True}
+            'password': {'write_only': True}
         }
-        
-class MessageSerializer(serializers.ModelSerializer):
-    """
-    Serializer for the Message model.
-    Includes sender details in the serialized output.
-    """
-    sender = UserSerializer(read_only=True)
 
-    class Meta:
-        model = Message
-        fields = [
-            'id',
-            'sender',
-            'message_body',
-            'sent_at'
-            'conversation', 
-            'user', 
-            'content', 
-            'created_at'
-        ]
-        read_only_fields = ['id', 'sent_at']
-
-class ConversationSerializer(serializers.ModelSerializer):
-    """
-    Serializer for the Conversation model.
-    Includes nested participants and messages.
-    """
-    participants = UserSerializer(many=True, read_only=True)
-    messages = MessageSerializer(many=True, read_only=True)
-
-    class Meta:
-        model = Conversation
-        fields = [
-            'id',
-            'participants',
-            'messages',
-            'created_at'
-        ]
-        read_only_fields = ['id', 'created_at']
-
-
-class ConversationCreateSerializer(serializers.ModelSerializer):
-    """
-    Serializer for creating new conversations.
-    Handles participant IDs during creation.
-    """
-    participant_ids = serializers.ListField(
-        child=serializers.UUIDField(),
-        write_only=True,
-        required=True
-    )
-
-
-    class Meta:
-        model = Conversation
-        fields = ['id', 'participant_ids']
-        read_only_fields = ['id']
+    def validate_password(self, value):
+        try:
+            # Validate the password using Django's built-in validators
+            validate_password(value)
+        except serializers.ValidationError as e:
+            raise serializers.ValidationError({'password': list(e.messages)})
+        return value
 
     def create(self, validated_data):
-        participant_ids = validated_data.pop('participant_ids')
-        conversation = Conversation.objects.create(**validated_data)
-        
-        # Add participants to the conversation
-        conversation.participants.add(*participant_ids)
-        
-        return conversation
+        user = User(
+            username=validated_data['username'],
+            email=validated_data['email'],
+            first_name=validated_data.get('first_name', ''),
+            last_name=validated_data.get('last_name', ''),
+            phone_number=validated_data.get('phone_number', '')
+        )
+        user.set_password(validated_data['password'])
+        user.save()
+        return user
 
 
-class MessageCreateSerializer(serializers.ModelSerializer):
-    """
-    Serializer for creating new messages.
-    Handles message creation within conversations.
-    """
+class MessageSerializer(serializers.ModelSerializer):
+    sender_username = serializers.SerializerMethodField()
+
     class Meta:
         model = Message
-        fields = [
-            'id',
-            'conversation',
-            'message_body'
-        ]
-        read_only_fields = ['id']
+        fields = ['message_id', 'conversation', 'sender', 'sender_username', 'message_body', 'sent_at', 'created_at']
+        read_only_fields = ['message_id', 'sent_at', 'created_at']
+    
+    def create(self, validated_data):
+        return Message.objects.create(**validated_data)
+    
+    def get_sender_username(self, obj):
+        return obj.sender.username if obj.sender else None
+    
+class ConversationSerializer(serializers.ModelSerializer):
+    participants = UserSerializer(many=True, read_only=True)
 
-    def validate_conversation(self, value):
-        """
-        Validate that the sender is a participant in the conversation.
-        """
-        request = self.context.get('request')
-        if request and hasattr(request, 'user'):
-            if not value.participants.filter(id=request.user.id).exists():
-                raise serializers.ValidationError(
-                    "You are not a participant in this conversation."
-                )
-        return value
+    class Meta:
+        model = Conversation
+        fields = ['conversation_id', 'participants', 'created_at']
+        read_only_fields = ['conversation_id', 'created_at']
+    
+    def create(self, validated_data):
+        conversation = Conversation.objects.create()
+        conversation.participants.set(validated_data.get('participants', []))
+        return conversation
+    
+
 

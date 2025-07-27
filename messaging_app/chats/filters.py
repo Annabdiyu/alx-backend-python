@@ -1,29 +1,11 @@
-from django_filters import rest_framework as filters
+import django_filters
 from .models import Message
-from django.contrib.auth.models import User
 
-class MessageFilter(filters.FilterSet):
-    """
-    Filter messages by conversation participants or time range.
-    """
-    user = filters.ModelChoiceFilter(
-        queryset=User.objects.all(),
-        field_name='conversation__participants',
-        label='Participant'
-    )
-    start_date = filters.DateTimeFilter(
-        field_name='created_at',
-        lookup_expr='gte',
-        label='Start Date'
-    )
-    end_date = filters.DateTimeFilter(
-        field_name='created_at',
-        lookup_expr='lte',
-        label='End Date'
-    )
+class MessageFilter(django_filters.FilterSet):
+    sent_before = django_filters.IsoDateTimeFilter(field_name='timestamp', lookup_expr='lte')
+    sent_after = django_filters.IsoDateTimeFilter(field_name='timestamp', lookup_expr='gte')
+    sender = django_filters.NumberFilter(field_name='sender__id')
 
     class Meta:
         model = Message
-        fields = ['user', 'start_date', 'end_date']
-
-
+        fields = ['sender', 'sent_before', 'sent_after']

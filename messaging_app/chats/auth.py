@@ -1,7 +1,4 @@
-from rest_framework_simplejwt.views import (
-    TokenObtainPairView,
-    TokenRefreshView,
-)
+# chats/auth.py
 
-class CustomTokenObtainPairView(TokenObtainPairView):
-    pass
+def dummy_auth_check():
+    return True

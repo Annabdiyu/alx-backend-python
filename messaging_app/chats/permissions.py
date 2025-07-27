@@ -1,30 +1,30 @@
 from rest_framework import permissions
-
-class IsOwnerOrReadOnly(permissions.BasePermission):
-    """
-    Custom permission to only allow owners of an object to edit it.
-    """
-    def has_object_permission(self, request, view, obj):
-        # Read permissions are allowed to any authenticated user
-        if request.method in permissions.SAFE_METHODS:
-            return True
-        # Write permissions are only allowed to the owner of the message/conversation
-        return obj.user == request.user
+from .models import Conversation
 
 class IsParticipantOfConversation(permissions.BasePermission):
     """
-    Custom permission to only allow participants of a conversation to access messages.
+    Custom permission to only allow participants of a conversation to interact with it.
     """
+
     def has_permission(self, request, view):
-        # Only allow authenticated users
-        if not request.user.is_authenticated:
-            return False
-        return True
+        # ✅ Ensure user is authenticated
+        return request.user and request.user.is_authenticated
 
     def has_object_permission(self, request, view, obj):
-        # Check if the object is a Message
+        """
+        Object-level permission:
+        - Messages: check if request.user is part of obj.conversation.participants
+        - Conversations: check if user is in obj.participants
+        """
+        # Handle messages
         if hasattr(obj, 'conversation'):
-            # Allow access if user is a participant in the conversation
-            return obj.conversation.participants.filter(id=request.user.id).exists()
-        # If object is a Conversation, check participants directly
-        return obj.participants.filter(id=request.user.id).exists()
+            return request.user in obj.conversation.participants.all()
+        
+        # Handle conversations
+        if hasattr(obj, 'participants'):
+            return request.user in obj.participants.all()
+        
+        if request.method in ["GET", "POST", "PUT", "PATCH", "DELETE"]:
+            return request.user in obj.conversation.participants.all()
+        
+        return False
