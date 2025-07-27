@@ -1,76 +1,127 @@
-from rest_framework import viewsets, permissions, filters, status # Import status
-from rest_framework.response import Response # Import Response
-from django_filters.rest_framework import DjangoFilterBackend
+from rest_framework import generics
+from rest_framework import viewsets, status
+from rest_framework.response import Response
+from rest_framework.permissions import IsAuthenticated
+from .models import MyModel
 from .models import Conversation, Message
-from .serializers import ConversationSerializer, MessageSerializer
+from .permissions import IsParticipantOfConversation
+from .filters import MessageFilter
+from .serializers import (
+    ConversationSerializer,
+    ConversationCreateSerializer,
+    MessageSerializer,
+    MessageCreateSerializer,
+    MyModelSerializer
+)
+
+
+
+class BookListCreateAPIView(generics.ListCreateAPIView):
+    queryset = Book.objects.all()
+    serializer_class = BookSerializer
 
 class ConversationViewSet(viewsets.ModelViewSet):
     """
-    API endpoint that allows conversations to be viewed or created.
+    ViewSet for handling Conversation operations.
+    Supports listing conversations and creating new ones.
     """
+    queryset = Conversation.objects.all()
+    permission_classes = [IsAuthenticated] 
     serializer_class = ConversationSerializer
-    permission_classes = [permissions.IsAuthenticated]
-    
-    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
-    filterset_fields = ['participants']
-    search_fields = ['messages__message_body']
-    ordering_fields = ['created_at']
+    permission_classes = [IsAuthenticated, IsParticipantOfConversation]
+
+    def get_queryset(self):
+        # Only return conversations where the user is a participant
+        return Conversation.objects.filter(participants=self.request.user)
+
+    def get_serializer_class(self):
+        """
+        Returns appropriate serializer based on action.
+        """
+        if self.action == 'create':
+            return ConversationCreateSerializer
+        return ConversationSerializer
 
     def get_queryset(self):
         """
-        This view should return a list of all the conversations
-        for the currently authenticated user.
+        Returns conversations where the current user is a participant.
         """
-        user = self.request.user
-        return user.conversations.all().prefetch_related('participants', 'messages')
-
-    def get_serializer_context(self):
-        """Pass request context to the serializer for user access."""
-        return {'request': self.request}
+        return self.queryset.filter(participants=self.request.user)
 
     def create(self, request, *args, **kwargs):
         """
-        Override the create method to explicitly return a 201 status.
-        This satisfies the checker's requirement for the 'status' keyword.
+        Create a new conversation with participants.
+        Automatically adds the current user as a participant.
         """
-        serializer = self.get_serializer(data=request.data)
+        serializer = self.get_serializer_class()(data=request.data)
         serializer.is_valid(raise_exception=True)
-        self.perform_create(serializer)
-        headers = self.get_success_headers(serializer.data)
-        return Response(serializer.data, status=status.HTTP_201_CREATED, headers=headers)
+        
+        # Get participant IDs and add current user if not already included
+        participant_ids = serializer.validated_data['participant_ids']
+        if request.user.id not in participant_ids:
+            participant_ids.append(request.user.id)
+        
+        # Create conversation with participants
+        conversation = Conversation.objects.create()
+        conversation.participants.add(*participant_ids)
+        
+        # Return the created conversation
+        response_serializer = ConversationSerializer(conversation)
+        return Response(response_serializer.data, status=status.HTTP_201_CREATED)
 
 
 class MessageViewSet(viewsets.ModelViewSet):
     """
-    API endpoint that allows messages to be viewed or created.
+    ViewSet for handling Message operations.
+    Supports listing messages in a conversation and creating new messages.
     """
+    queryset = Message.objects.all()
+    permission_classes = [IsAuthenticated]
     serializer_class = MessageSerializer
-    permission_classes = [permissions.IsAuthenticated]
-    
-    filter_backends = [DjangoFilterBackend, filters.OrderingFilter]
-    filterset_fields = ['conversation']
-    ordering_fields = ['sent_at']
-    ordering = ['-sent_at']
+    permission_classes = [IsAuthenticated, IsParticipantOfConversation]
+
+class MessageViewSet(viewsets.ModelViewSet):
+    queryset = Message.objects.all()
+    serializer_class = MessageSerializer
+    permission_classes = [IsAuthenticated, IsParticipantOfConversation]
+    filterset_class = MessageFilter
+
+    def get_serializer_class(self):
+        """
+        Returns appropriate serializer based on action.
+        """
+        if self.action == 'create':
+            return MessageCreateSerializer
+        return MessageSerializer
 
     def get_queryset(self):
         """
-        This view should only return messages in conversations
-        that the currently authenticated user is a part of.
+        Returns messages from conversations where the current user is a participant.
         """
-        user = self.request.user
-        return Message.objects.filter(conversation__participants=user)
+        return self.queryset.filter(
+            conversation__participants=self.request.user
+        ).order_by('sent_at')
+        return Message.objects.filter(conversation__participants=self.request.user).order_by('-created_at') 
 
-    def perform_create(self, serializer):
-        """Set the sender of the message to the currently authenticated user."""
-        serializer.save(sender=self.request.user)
-    
     def create(self, request, *args, **kwargs):
         """
-        Override the create method to explicitly return a 201 status.
-        This satisfies the checker's requirement for the 'status' keyword.
+        Create a new message in a conversation.
+        Automatically sets the sender to the current user.
         """
-        serializer = self.get_serializer(data=request.data)
+        serializer = self.get_serializer_class()(
+            data=request.data,
+            context={'request': request}
+        )
         serializer.is_valid(raise_exception=True)
-        self.perform_create(serializer)
-        headers = self.get_success_headers(serializer.data)
-        return Response(serializer.data, status=status.HTTP_201_CREATED, headers=headers)
+        
+        # Create message with current user as sender
+        message = Message.objects.create(
+            sender=request.user,
+            conversation=serializer.validated_data['conversation'],
+            message_body=serializer.validated_data['message_body']
+        )
+        
+        # Return the created message
+        response_serializer = MessageSerializer(message)
+        return Response(response_serializer.data, status=status.HTTP_201_CREATED)
+
