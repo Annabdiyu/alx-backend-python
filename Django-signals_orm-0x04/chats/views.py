@@ -1,17 +1,20 @@
 from django.views.decorators.cache import cache_page
-from django.shortcuts import render
-from .models import Message  # Or your message model
+from django.shortcuts import render, get_object_or_404
+from messaging.models import Conversation, Message  # Adjust to your models
 
-# Add cache decorator with 60-second timeout
-@cache_page(60)  # 60 seconds timeout
-def conversation_detail(request, conversation_id):
-    # Get conversation messages - this is where you'd normally query messages
-    # Example query:
-    messages = Message.objects.filter(
-        conversation_id=conversation_id
-    ).select_related('sender').order_by('timestamp')
+@cache_page(60)  # 60 seconds cache
+def conversation_messages(request, conversation_id):
+    # Get conversation
+    conversation = get_object_or_404(Conversation, id=conversation_id)
     
-    return render(request, 'chats/conversation.html', {
-        'messages': messages,
-        'conversation_id': conversation_id
+    # Get messages with optimization
+    messages = Message.objects.filter(
+        conversation=conversation
+    ).select_related('sender').only(
+        'content', 'timestamp', 'sender__username'
+    ).order_by('timestamp')
+    
+    return render(request, 'chats/messages.html', {
+        'conversation': conversation,
+        'messages': messages
     })
