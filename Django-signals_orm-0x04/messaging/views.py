@@ -32,3 +32,18 @@ def thread_detail(request, message_id):
     return render(request, 'messaging/thread.html', {
         'root_message': root_message
     })
+
+def inbox(request):
+    # Use the custom manager to get unread messages
+    unread_messages = Message.unread.unread_for_user(request.user)
+    
+    # This is equivalent to:
+    # unread_messages = Message.objects.filter(
+    #     receiver=request.user,
+    #     read=False
+    # ).select_related('sender').only(
+    #     'id', 'content', 'timestamp', 'sender__username'
+    # )
+    
+    context = {'unread_messages': unread_messages}
+    return render(request, 'messaging/inbox.html', context)
